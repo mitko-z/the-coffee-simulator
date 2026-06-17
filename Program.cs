@@ -12,7 +12,7 @@ Console.WriteLine("     Overpriced Coffee Simulator 2026");
 Console.WriteLine("===========================================");
 Console.WriteLine();
 
-var bootstrapSettings = new LocalDatabaseSettings(); // [Singleton smell] First config read. Surely the last one, right? Right?
+var bootstrapSettings = LocalDatabaseSettings.GetInstance();
 Console.WriteLine($"Connected to local store: {bootstrapSettings.StoreName}");
 Console.WriteLine($"Today's bean tax multiplier: {bootstrapSettings.BeanTaxMultiplier:P0}");
 Console.WriteLine();
@@ -173,21 +173,33 @@ static bool ReadYesNoOrDefault(bool defaultValue)
 
 public class LocalDatabaseSettings
 {
+    // Refactored to a 'naive', not thread safe, singleton version
+    // Which in our simple example will work just fine ;-)
     public string StoreName { get; }
     public string CurrencyCode { get; }
     public decimal BeanTaxMultiplier { get; }
     public int OrdersProcessed { get; set; }
 
-    public LocalDatabaseSettings()
+    private LocalDatabaseSettings()
     {
-        // [Singleton smell] Pretend this is expensive config/database bootstrapping.
-        // Every `new LocalDatabaseSettings()` starts fresh because global state is best enjoyed inconsistently.
-        Console.WriteLine("[config] Reading local database settings again, because caching is apparently a rumor.");
+        Console.WriteLine("[config] Reading local database settings, hope this is the only single time.");
 
         StoreName = "Bosch Campus Coffee Vault";
         CurrencyCode = "EUR";
         BeanTaxMultiplier = 0.21m;
         OrdersProcessed = 0;
+    }
+
+    private static LocalDatabaseSettings? _instance;
+
+    public static LocalDatabaseSettings GetInstance()
+    {
+        if(_instance == null)
+        {
+            _instance = new LocalDatabaseSettings();
+        }
+
+        return _instance;
     }
 }
 
@@ -250,7 +262,7 @@ public abstract class Coffee
 
     public decimal CalculateTotalPrice()
     {
-        var settings = new LocalDatabaseSettings(); // [Singleton smell] Another config reset, now with pricing consequences.
+        var settings = LocalDatabaseSettings.GetInstance();
         decimal total = BasePrice;
 
         // [Decorator smell] Every topping, modifier, and lifestyle choice lives here forever.
@@ -488,7 +500,7 @@ public class CheckoutService
 {
     public void Checkout(Coffee coffee)
     {
-        var settings = new LocalDatabaseSettings(); // [Singleton smell] New instance, new state, same sinking feeling.
+        var settings = LocalDatabaseSettings.GetInstance(); //
         decimal total = coffee.CalculateTotalPrice();
         int cents = (int)Math.Round(total * 100m);
 
@@ -539,7 +551,7 @@ public class OrderPrinter
 {
     public void PrintOrder(Coffee coffee)
     {
-        var settings = new LocalDatabaseSettings(); // [Singleton smell] Receipt printing also needs its own universe.
+        var settings = LocalDatabaseSettings.GetInstance(); 
 
         Console.WriteLine("Order Summary");
         Console.WriteLine("-------------");
@@ -564,7 +576,7 @@ public class ReceiptLogger
 {
     public void SaveReceipt(Coffee coffee)
     {
-        var settings = new LocalDatabaseSettings(); // [Singleton smell] Logging config is apparently artisanal.
+        var settings = LocalDatabaseSettings.GetInstance();
         decimal total = coffee.CalculateTotalPrice();
 
         Console.WriteLine();
