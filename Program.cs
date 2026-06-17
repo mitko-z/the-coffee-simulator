@@ -1,6 +1,9 @@
+using System.Globalization;
+
 using System;
 using System.Globalization;
 using System.Threading;
+using Microsoft.Extensions.DependencyInjection;
 
 // Overpriced Coffee Simulator 2026
 // A fully working console app, lovingly architected like it was finished at 1:47 AM before a demo.
@@ -12,7 +15,18 @@ Console.WriteLine("     Overpriced Coffee Simulator 2026");
 Console.WriteLine("===========================================");
 Console.WriteLine();
 
-var bootstrapSettings = new LocalDatabaseSettings(); // [Singleton smell] First config read. Surely the last one, right? Right?
+// 1. SET UP THE DI CONTAINER
+// This acts as our "Host" or Bootstrap layer where we register all our services.
+var serviceProvider = new ServiceCollection()
+    // Register our settings as a Singleton. The DI container will create 
+    // exactly ONE instance and share it with anyone who asks.
+    .AddSingleton<LocalDatabaseSettings>()
+    .BuildServiceProvider();
+
+// 2. RETRIEVE OUR SINGLETON INSTANCE
+// We ask the container for the single, shared instance of our settings.
+var bootstrapSettings = serviceProvider.GetRequiredService<LocalDatabaseSettings>();
+
 Console.WriteLine($"Connected to local store: {bootstrapSettings.StoreName}");
 Console.WriteLine($"Today's bean tax multiplier: {bootstrapSettings.BeanTaxMultiplier:P0}");
 Console.WriteLine();
@@ -134,13 +148,13 @@ switch (coffeeChoice.Trim())
         break;
 }
 
-var printer = new OrderPrinter();
+var printer = new OrderPrinter(bootstrapSettings);
 printer.PrintOrder(coffee);
 
-var checkout = new CheckoutService();
+var checkout = new CheckoutService(bootstrapSettings);
 checkout.Checkout(coffee);
 
-var logger = new ReceiptLogger();
+var logger = new ReceiptLogger(bootstrapSettings);
 logger.SaveReceipt(coffee);
 
 Console.WriteLine();
@@ -178,11 +192,10 @@ public class LocalDatabaseSettings
     public decimal BeanTaxMultiplier { get; }
     public int OrdersProcessed { get; set; }
 
+    // The constructor is now PUBLIC again because the DI container needs to call it.
     public LocalDatabaseSettings()
     {
-        // [Singleton smell] Pretend this is expensive config/database bootstrapping.
-        // Every `new LocalDatabaseSettings()` starts fresh because global state is best enjoyed inconsistently.
-        Console.WriteLine("[config] Reading local database settings again, because caching is apparently a rumor.");
+        Console.WriteLine("[config] Reading local database settings via DI container... this should only happen once!");
 
         StoreName = "Bosch Campus Coffee Vault";
         CurrencyCode = "EUR";
@@ -248,9 +261,8 @@ public abstract class Coffee
         BasePrice = basePrice;
     }
 
-    public decimal CalculateTotalPrice()
+    public decimal CalculateTotalPrice(LocalDatabaseSettings settings)
     {
-        var settings = new LocalDatabaseSettings(); // [Singleton smell] Another config reset, now with pricing consequences.
         decimal total = BasePrice;
 
         // [Decorator smell] Every topping, modifier, and lifestyle choice lives here forever.
@@ -486,10 +498,17 @@ public class Latte : Coffee
 
 public class CheckoutService
 {
+    private readonly LocalDatabaseSettings _settings;
+
+    // We add a constructor that accepts our dependency.
+    public CheckoutService(LocalDatabaseSettings settings)
+    {
+        _settings = settings;
+    }
+
     public void Checkout(Coffee coffee)
     {
-        var settings = new LocalDatabaseSettings(); // [Singleton smell] New instance, new state, same sinking feeling.
-        decimal total = coffee.CalculateTotalPrice();
+        decimal total = coffee.CalculateTotalPrice(_settings);
         int cents = (int)Math.Round(total * 100m);
 
         Console.WriteLine();
@@ -500,13 +519,13 @@ public class CheckoutService
         // [Adapter smell] Directly married to an awkward third-party API.
         // Somewhere, a test double is trying to exist and quietly giving up.
         var paymentMachine = new LegacyPaymentMachine();
-        string legacyResult = paymentMachine.ProcessTransactionInCents(cents, settings.CurrencyCode);
+        string legacyResult = paymentMachine.ProcessTransactionInCents(cents, _settings.CurrencyCode);
 
         if (legacyResult.StartsWith("APPROVED", StringComparison.OrdinalIgnoreCase))
         {
-            settings.OrdersProcessed++;
+            _settings.OrdersProcessed++;
             Console.WriteLine("Payment approved.");
-            Console.WriteLine($"Local orders processed according to this brand-new settings object: {settings.OrdersProcessed}");
+            Console.WriteLine($"Local orders processed according to this brand-new settings object: {_settings.OrdersProcessed}");
         }
         else
         {
@@ -537,13 +556,17 @@ public class LegacyPaymentMachine
 
 public class OrderPrinter
 {
+    private readonly LocalDatabaseSettings _settings;
+    public OrderPrinter(LocalDatabaseSettings settings)
+    {
+        _settings = settings;
+    }
+
     public void PrintOrder(Coffee coffee)
     {
-        var settings = new LocalDatabaseSettings(); // [Singleton smell] Receipt printing also needs its own universe.
-
         Console.WriteLine("Order Summary");
         Console.WriteLine("-------------");
-        Console.WriteLine($"Store: {settings.StoreName}");
+        Console.WriteLine($"Store: {_settings.StoreName}");
         Console.WriteLine($"Customer: {coffee.CustomerName}");
         Console.WriteLine($"Drink: {coffee.Name}");
         Console.WriteLine($"Size: {coffee.Size}");
@@ -562,13 +585,18 @@ public class OrderPrinter
 
 public class ReceiptLogger
 {
+    private readonly LocalDatabaseSettings _settings;
+    public ReceiptLogger(LocalDatabaseSettings settings)
+    {
+        _settings = settings;
+    }
+
     public void SaveReceipt(Coffee coffee)
     {
-        var settings = new LocalDatabaseSettings(); // [Singleton smell] Logging config is apparently artisanal.
-        decimal total = coffee.CalculateTotalPrice();
+        decimal total = coffee.CalculateTotalPrice(_settings);
 
         Console.WriteLine();
         Console.WriteLine("[receipt-log]");
-        Console.WriteLine($"Saved receipt for {coffee.CustomerName} at {settings.StoreName}: {coffee.Name}, {total:0.00} {settings.CurrencyCode}");
+        Console.WriteLine($"Saved receipt for {coffee.CustomerName} at {_settings.StoreName}: {coffee.Name}, {total:0.00} {_settings.CurrencyCode}");
     }
 }
