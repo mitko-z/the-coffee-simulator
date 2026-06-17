@@ -106,7 +106,9 @@ Coffee coffee = factory.CreateCoffee(coffeeChoice, builder);
 var printer = new OrderPrinter(bootstrapSettings);
 printer.PrintOrder(coffee);
 
-var checkout = new CheckoutService(bootstrapSettings);
+var legacyPaymentMachine = new LegacyPaymentMachine();
+var paymentAdapter = new LegacyPaymentAdapter(legacyPaymentMachine, bootstrapSettings);
+var checkout = new CheckoutService(paymentAdapter, bootstrapSettings);
 checkout.Checkout(coffee);
 
 var logger = new ReceiptLogger(bootstrapSettings);
@@ -440,11 +442,13 @@ public class Latte : Coffee
 
 public class CheckoutService
 {
+    private readonly IPaymentProcessor _paymentProcessor;
     private readonly LocalDatabaseSettings _settings;
 
     // We add a constructor that accepts our dependency.
-    public CheckoutService(LocalDatabaseSettings settings)
+    public CheckoutService(IPaymentProcessor paymentProcessor, LocalDatabaseSettings settings)
     {
+        _paymentProcessor = paymentProcessor;
         _settings = settings;
     }
 
@@ -457,13 +461,10 @@ public class CheckoutService
         Console.WriteLine("Checkout");
         Console.WriteLine("--------");
         Console.WriteLine($"Total due: {total.ToString("C", CultureInfo.GetCultureInfo("de-DE"))}");
-
-        // [Adapter smell] Directly married to an awkward third-party API.
-        // Somewhere, a test double is trying to exist and quietly giving up.
-        var paymentMachine = new LegacyPaymentMachine();
-        string legacyResult = paymentMachine.ProcessTransactionInCents(cents, _settings.CurrencyCode);
-
-        if (legacyResult.StartsWith("APPROVED", StringComparison.OrdinalIgnoreCase))
+        // Look! No mention of the Legacy class here.
+        // Beautifully simple domain call:
+        bool success = _paymentProcessor.ProcessPayment(total);
+        if(success)
         {
             _settings.OrdersProcessed++;
             Console.WriteLine("Payment approved.");
@@ -540,5 +541,34 @@ public class ReceiptLogger
         Console.WriteLine();
         Console.WriteLine("[receipt-log]");
         Console.WriteLine($"Saved receipt for {coffee.CustomerName} at {_settings.StoreName}: {coffee.Name}, {total:0.00} {_settings.CurrencyCode}");
+    }
+}
+
+
+public interface IPaymentProcessor
+{
+    bool ProcessPayment(decimal amount);
+}
+
+public class LegacyPaymentAdapter : IPaymentProcessor
+{
+    private readonly LegacyPaymentMachine _legacyMachine;
+    private readonly LocalDatabaseSettings _settings;
+
+    // We inject the legacy machine and settings into the adapter
+    public LegacyPaymentAdapter(LegacyPaymentMachine legacyMachine, LocalDatabaseSettings settings)
+    {
+        _legacyMachine = legacyMachine;
+        _settings = settings;
+    }
+
+    public bool ProcessPayment(decimal amount)
+    {
+        // The Adapter handles the annoying conversion logic here!
+        int cents = (int)Math.Round(amount * 100m);
+
+        string result = _legacyMachine.ProcessTransactionInCents(cents, _settings.CurrencyCode);
+
+        return result.StartsWith("APPROVED", StringComparison.OrdinalIgnoreCase);
     }
 }
