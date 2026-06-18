@@ -80,73 +80,24 @@ string loyaltyLevel = ReadTextOrDefault("None");
 
 Console.WriteLine();
 
-Coffee coffee;
+// Instead of the massive switch block in the main flow, we just do this:
+var factory = new CoffeeFactory();
+Coffee coffee = factory.CreateCoffee(
+    coffeeChoice, 
+    customerName, 
+    size, 
+    milkType, 
+    espressoShots, 
+    syrupType, 
+    syrupShots, 
+    hasWhippedCream, 
+    hasSprinkles, 
+    isIced, 
+    hasCaramelDrizzle, 
+    extraHot, 
+    decaf, 
+    loyaltyLevel);
 
-// [Factory smell] The caffeine hydra: creation logic hardcoded directly into the ordering flow.
-// Add a new coffee type and enjoy editing this switch, the menu, pricing assumptions, probably your resume.
-switch (coffeeChoice.Trim())
-{
-    case "1":
-    case "espresso":
-    case "Espresso":
-        coffee = new Espresso(
-            customerName,
-            size,
-            milkType,
-            espressoShots,
-            syrupType,
-            syrupShots,
-            hasWhippedCream,
-            hasSprinkles,
-            isIced,
-            hasCaramelDrizzle,
-            extraHot,
-            decaf,
-            loyaltyLevel,
-            DateTime.Now);
-        break;
-
-    case "2":
-    case "cappuccino":
-    case "Cappuccino":
-        coffee = new Cappuccino(
-            customerName,
-            size,
-            milkType,
-            espressoShots,
-            syrupType,
-            syrupShots,
-            hasWhippedCream,
-            hasSprinkles,
-            isIced,
-            hasCaramelDrizzle,
-            extraHot,
-            decaf,
-            loyaltyLevel,
-            DateTime.Now);
-        break;
-
-    case "3":
-    case "latte":
-    case "Latte":
-    default:
-        coffee = new Latte(
-            customerName,
-            size,
-            milkType,
-            espressoShots,
-            syrupType,
-            syrupShots,
-            hasWhippedCream,
-            hasSprinkles,
-            isIced,
-            hasCaramelDrizzle,
-            extraHot,
-            decaf,
-            loyaltyLevel,
-            DateTime.Now);
-        break;
-}
 
 var printer = new OrderPrinter(bootstrapSettings);
 printer.PrintOrder(coffee);
@@ -183,6 +134,20 @@ static bool ReadYesNoOrDefault(bool defaultValue)
 
     value = value.Trim().ToLowerInvariant();
     return value == "y" || value == "yes" || value == "true";
+}
+
+public class CoffeeFactory
+{
+    public Coffee CreateCoffee(string choice, string customerName, string size, string milkType, int espressoShots, string syrupType, int syrupShots, bool hasWhippedCream, bool hasSprinkles, bool isIced, bool hasCaramelDrizzle, bool extraHot, bool decaf, string loyaltyLevel)
+    {
+        return choice.Trim().ToLower() switch
+        {
+            "1" or "espresso" => new Espresso(customerName, size, milkType, espressoShots, syrupType, syrupShots, hasWhippedCream, hasSprinkles, isIced, hasCaramelDrizzle, extraHot, decaf, loyaltyLevel, DateTime.Now),
+            "2" or "cappuccino" => new Cappuccino(customerName, size, milkType, espressoShots, syrupType, syrupShots, hasWhippedCream, hasSprinkles, isIced, hasCaramelDrizzle, extraHot, decaf, loyaltyLevel, DateTime.Now),
+            "3" or "latte" => new Latte(customerName, size, milkType, espressoShots, syrupType, syrupShots, hasWhippedCream, hasSprinkles, isIced, hasCaramelDrizzle, extraHot, decaf, loyaltyLevel, DateTime.Now),
+            _ => throw new ArgumentException($"We don't serve '{choice}'. Please order something else or visit a competitor.")
+        };
+    }
 }
 
 public class LocalDatabaseSettings
