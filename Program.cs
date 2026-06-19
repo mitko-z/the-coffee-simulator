@@ -1,9 +1,10 @@
 using System.Globalization;
 
+using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Globalization;
 using System.Threading;
-using Microsoft.Extensions.DependencyInjection;
+using System.Xml.Linq;
 
 // Overpriced Coffee Simulator 2026
 // A fully working console app, lovingly architected like it was finished at 1:47 AM before a demo.
@@ -80,23 +81,26 @@ string loyaltyLevel = ReadTextOrDefault("None");
 
 Console.WriteLine();
 
-// Instead of the massive switch block in the main flow, we just do this:
+// 1. Gather all the options into the Builder fluently
+var builder = new CoffeeBuilder()
+    .ForCustomer(customerName)
+    .WithSize(size)
+    .WithMilk(milkType)
+    .AddEspressoShots(espressoShots)
+    .WithSyrup(syrupType, syrupShots) // We can package syrup type & shots together!
+    .WithLoyalty(loyaltyLevel);
+
+if(hasWhippedCream) builder.WithWhippedCream();
+if(hasSprinkles) builder.WithSprinkles();
+if(isIced) builder.Iced();
+if(hasCaramelDrizzle) builder.WithCaramelDrizzle();
+if(extraHot) builder.IsExtraHot();
+if(decaf) builder.IsDecaf();
+
+// 2. Ask the Factory to create the correct drink using our configured Builder
 var factory = new CoffeeFactory();
-Coffee coffee = factory.CreateCoffee(
-    coffeeChoice, 
-    customerName, 
-    size, 
-    milkType, 
-    espressoShots, 
-    syrupType, 
-    syrupShots, 
-    hasWhippedCream, 
-    hasSprinkles, 
-    isIced, 
-    hasCaramelDrizzle, 
-    extraHot, 
-    decaf, 
-    loyaltyLevel);
+Coffee coffee = factory.CreateCoffee(coffeeChoice, builder);
+
 
 
 var printer = new OrderPrinter(bootstrapSettings);
@@ -138,17 +142,54 @@ static bool ReadYesNoOrDefault(bool defaultValue)
 
 public class CoffeeFactory
 {
-    public Coffee CreateCoffee(string choice, string customerName, string size, string milkType, int espressoShots, string syrupType, int syrupShots, bool hasWhippedCream, bool hasSprinkles, bool isIced, bool hasCaramelDrizzle, bool extraHot, bool decaf, string loyaltyLevel)
+    // Look at how clean this signature is now!
+    public Coffee CreateCoffee(string choice, CoffeeBuilder builder)
     {
         return choice.Trim().ToLower() switch
         {
-            "1" or "espresso" => new Espresso(customerName, size, milkType, espressoShots, syrupType, syrupShots, hasWhippedCream, hasSprinkles, isIced, hasCaramelDrizzle, extraHot, decaf, loyaltyLevel, DateTime.Now),
-            "2" or "cappuccino" => new Cappuccino(customerName, size, milkType, espressoShots, syrupType, syrupShots, hasWhippedCream, hasSprinkles, isIced, hasCaramelDrizzle, extraHot, decaf, loyaltyLevel, DateTime.Now),
-            "3" or "latte" => new Latte(customerName, size, milkType, espressoShots, syrupType, syrupShots, hasWhippedCream, hasSprinkles, isIced, hasCaramelDrizzle, extraHot, decaf, loyaltyLevel, DateTime.Now),
-            _ => throw new ArgumentException($"We don't serve '{choice}'. Please order something else or visit a competitor.")
+            "1" or "espresso" => new Espresso(builder, DateTime.Now),
+            "2" or "cappuccino" => new Cappuccino(builder, DateTime.Now),
+            "3" or "latte" => new Latte(builder, DateTime.Now),
+            _ => throw new ArgumentException($"We don't serve '{choice}'. Please order something else.")
         };
     }
 }
+
+
+public class CoffeeBuilder
+{
+    // Expose properties so the Coffee constructor can read them
+    public string CustomerName { get; private set; } = "Anonymous";
+    public string Name { get; private set; } = "Custom Coffee";
+    public string Size { get; private set; } = "Medium";
+    public string MilkType { get; private set; } = "Whole";
+    public int EspressoShots { get; private set; } = 2;
+    public string SyrupType { get; private set; } = "None";
+    public int SyrupShots { get; private set; } = 0;
+    public bool HasWhippedCream { get; private set; }
+    public bool HasSprinkles { get; private set; }
+    public bool IsIced { get; private set; }
+    public bool HasCaramelDrizzle { get; private set; }
+    public bool ExtraHot { get; private set; }
+    public bool Decaf { get; private set; }
+    public string LoyaltyLevel { get; private set; } = "None";
+
+    public CoffeeBuilder ForCustomer(string name) { CustomerName = name; return this; }
+    public CoffeeBuilder OfType(string name) { Name = name; return this; }
+    public CoffeeBuilder WithSize(string size) { Size = size; return this; }
+    public CoffeeBuilder WithMilk(string milkType) { MilkType = milkType; return this; }
+    public CoffeeBuilder AddEspressoShots(int count) { EspressoShots = count; return this; }
+    public CoffeeBuilder WithSyrup(string syrupType, int syrupShots) { SyrupType = syrupType; SyrupShots = syrupShots; return this; }
+    public CoffeeBuilder WithWhippedCream() { HasWhippedCream = true; return this; }
+    public CoffeeBuilder WithSprinkles() { HasSprinkles = true; return this; }
+    public CoffeeBuilder Iced() { IsIced = true; return this; }
+    public CoffeeBuilder WithCaramelDrizzle() { HasCaramelDrizzle = true; return this; }
+    public CoffeeBuilder IsExtraHot() { ExtraHot = true; return this; }
+    public CoffeeBuilder IsDecaf() { Decaf = true; return this; }
+    public CoffeeBuilder WithLoyalty(string loyalty) { LoyaltyLevel = loyalty; return this; }
+}
+
+
 
 public class LocalDatabaseSettings
 {
@@ -190,38 +231,22 @@ public abstract class Coffee
 
     // [Builder smell] Constructor from Hell.
     // One more boolean and this becomes less of an API and more of a personality test.
-    protected Coffee(
-        string customerName,
-        string name,
-        string size,
-        string milkType,
-        int espressoShots,
-        string syrupType,
-        int syrupShots,
-        bool hasWhippedCream,
-        bool hasSprinkles,
-        bool isIced,
-        bool hasCaramelDrizzle,
-        bool extraHot,
-        bool decaf,
-        string loyaltyLevel,
-        DateTime orderedAt,
-        decimal basePrice)
+    protected Coffee(CoffeeBuilder builder, DateTime orderedAt, decimal basePrice)
     {
-        CustomerName = customerName;
-        Name = name;
-        Size = size;
-        MilkType = milkType;
-        EspressoShots = espressoShots;
-        SyrupType = syrupType;
-        SyrupShots = syrupShots;
-        HasWhippedCream = hasWhippedCream;
-        HasSprinkles = hasSprinkles;
-        IsIced = isIced;
-        HasCaramelDrizzle = hasCaramelDrizzle;
-        ExtraHot = extraHot;
-        Decaf = decaf;
-        LoyaltyLevel = loyaltyLevel;
+        CustomerName = builder.CustomerName;
+        Name = builder.Name;
+        Size = builder.Size;
+        MilkType = builder.MilkType;
+        EspressoShots = builder.EspressoShots;
+        SyrupType = builder.SyrupType;
+        SyrupShots = builder.SyrupShots;
+        HasWhippedCream = builder.HasWhippedCream;
+        HasSprinkles = builder.HasSprinkles;
+        IsIced = builder.IsIced;
+        HasCaramelDrizzle = builder.HasCaramelDrizzle;
+        ExtraHot = builder.ExtraHot;
+        Decaf = builder.Decaf;
+        LoyaltyLevel = builder.LoyaltyLevel;
         OrderedAt = orderedAt;
         BasePrice = basePrice;
     }
@@ -394,69 +419,21 @@ public abstract class Coffee
 
 public class Espresso : Coffee
 {
-    public Espresso(
-        string customerName,
-        string size,
-        string milkType,
-        int espressoShots,
-        string syrupType,
-        int syrupShots,
-        bool hasWhippedCream,
-        bool hasSprinkles,
-        bool isIced,
-        bool hasCaramelDrizzle,
-        bool extraHot,
-        bool decaf,
-        string loyaltyLevel,
-        DateTime orderedAt)
-        : base(customerName, "Espresso", size, milkType, espressoShots, syrupType, syrupShots, hasWhippedCream,
-            hasSprinkles, isIced, hasCaramelDrizzle, extraHot, decaf, loyaltyLevel, orderedAt, 3.80m)
+    public Espresso(CoffeeBuilder builder, DateTime orderedAt) : base(builder, orderedAt, 3.80m)
     {
     }
 }
 
 public class Cappuccino : Coffee
 {
-    public Cappuccino(
-        string customerName,
-        string size,
-        string milkType,
-        int espressoShots,
-        string syrupType,
-        int syrupShots,
-        bool hasWhippedCream,
-        bool hasSprinkles,
-        bool isIced,
-        bool hasCaramelDrizzle,
-        bool extraHot,
-        bool decaf,
-        string loyaltyLevel,
-        DateTime orderedAt)
-        : base(customerName, "Cappuccino", size, milkType, espressoShots, syrupType, syrupShots, hasWhippedCream,
-            hasSprinkles, isIced, hasCaramelDrizzle, extraHot, decaf, loyaltyLevel, orderedAt, 4.90m)
+    public Cappuccino(CoffeeBuilder builder, DateTime orderedAt) : base(builder, orderedAt, 4.90m)
     {
     }
 }
 
 public class Latte : Coffee
 {
-    public Latte(
-        string customerName,
-        string size,
-        string milkType,
-        int espressoShots,
-        string syrupType,
-        int syrupShots,
-        bool hasWhippedCream,
-        bool hasSprinkles,
-        bool isIced,
-        bool hasCaramelDrizzle,
-        bool extraHot,
-        bool decaf,
-        string loyaltyLevel,
-        DateTime orderedAt)
-        : base(customerName, "Latte", size, milkType, espressoShots, syrupType, syrupShots, hasWhippedCream,
-            hasSprinkles, isIced, hasCaramelDrizzle, extraHot, decaf, loyaltyLevel, orderedAt, 5.40m)
+    public Latte(CoffeeBuilder builder, DateTime orderedAt) : base(builder, orderedAt, 5.40m)
     {
     }
 }
