@@ -22,6 +22,13 @@ var serviceProvider = new ServiceCollection()
     // Register our settings as a Singleton. The DI container will create 
     // exactly ONE instance and share it with anyone who asks.
     .AddSingleton<LocalDatabaseSettings>()
+    .AddSingleton<LegacyPaymentMachine>() // The underlying legacy mock is thread-safe, so Singleton is perfect
+    // Transient: A fresh instance is created every time someone asks for it
+    .AddTransient<IPaymentProcessor, LegacyPaymentAdapter>() // Maps our interface to our adapter!
+    .AddTransient<CheckoutService>()
+    .AddTransient<OrderPrinter>()
+    .AddTransient<ReceiptLogger>()
+    .AddTransient<CoffeeFactory>()
     .BuildServiceProvider();
 
 // 2. RETRIEVE OUR SINGLETON INSTANCE
@@ -97,19 +104,18 @@ if(hasCaramelDrizzle) builder.WithCaramelDrizzle();
 if(extraHot) builder.IsExtraHot();
 if(decaf) builder.IsDecaf();
 
-// 2. Ask the Factory to create the correct drink using our configured Builder
-var factory = new CoffeeFactory();
+// 2. Create the coffee via the Factory
+var factory = serviceProvider.GetRequiredService<CoffeeFactory>();
 Coffee coffee = factory.CreateCoffee(coffeeChoice, builder);
 
-
-
-var printer = new OrderPrinter(bootstrapSettings);
+// 3. Print, Checkout, and Log - no manual 'new-ing' of dependencies!
+var printer = serviceProvider.GetRequiredService<OrderPrinter>();
 printer.PrintOrder(coffee);
 
-var checkout = new CheckoutService(bootstrapSettings);
+var checkout = serviceProvider.GetRequiredService<CheckoutService>();
 checkout.Checkout(coffee);
 
-var logger = new ReceiptLogger(bootstrapSettings);
+var logger = serviceProvider.GetRequiredService<ReceiptLogger>();
 logger.SaveReceipt(coffee);
 
 Console.WriteLine();
@@ -440,11 +446,13 @@ public class Latte : Coffee
 
 public class CheckoutService
 {
+    private readonly IPaymentProcessor _paymentProcessor;
     private readonly LocalDatabaseSettings _settings;
 
     // We add a constructor that accepts our dependency.
-    public CheckoutService(LocalDatabaseSettings settings)
+    public CheckoutService(IPaymentProcessor paymentProcessor, LocalDatabaseSettings settings)
     {
+        _paymentProcessor = paymentProcessor;
         _settings = settings;
     }
 
@@ -457,13 +465,10 @@ public class CheckoutService
         Console.WriteLine("Checkout");
         Console.WriteLine("--------");
         Console.WriteLine($"Total due: {total.ToString("C", CultureInfo.GetCultureInfo("de-DE"))}");
-
-        // [Adapter smell] Directly married to an awkward third-party API.
-        // Somewhere, a test double is trying to exist and quietly giving up.
-        var paymentMachine = new LegacyPaymentMachine();
-        string legacyResult = paymentMachine.ProcessTransactionInCents(cents, _settings.CurrencyCode);
-
-        if (legacyResult.StartsWith("APPROVED", StringComparison.OrdinalIgnoreCase))
+        // Look! No mention of the Legacy class here.
+        // Beautifully simple domain call:
+        bool success = _paymentProcessor.ProcessPayment(total);
+        if(success)
         {
             _settings.OrdersProcessed++;
             Console.WriteLine("Payment approved.");
@@ -540,5 +545,34 @@ public class ReceiptLogger
         Console.WriteLine();
         Console.WriteLine("[receipt-log]");
         Console.WriteLine($"Saved receipt for {coffee.CustomerName} at {_settings.StoreName}: {coffee.Name}, {total:0.00} {_settings.CurrencyCode}");
+    }
+}
+
+
+public interface IPaymentProcessor
+{
+    bool ProcessPayment(decimal amount);
+}
+
+public class LegacyPaymentAdapter : IPaymentProcessor
+{
+    private readonly LegacyPaymentMachine _legacyMachine;
+    private readonly LocalDatabaseSettings _settings;
+
+    // We inject the legacy machine and settings into the adapter
+    public LegacyPaymentAdapter(LegacyPaymentMachine legacyMachine, LocalDatabaseSettings settings)
+    {
+        _legacyMachine = legacyMachine;
+        _settings = settings;
+    }
+
+    public bool ProcessPayment(decimal amount)
+    {
+        // The Adapter handles the annoying conversion logic here!
+        int cents = (int)Math.Round(amount * 100m);
+
+        string result = _legacyMachine.ProcessTransactionInCents(cents, _settings.CurrencyCode);
+
+        return result.StartsWith("APPROVED", StringComparison.OrdinalIgnoreCase);
     }
 }
