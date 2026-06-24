@@ -108,7 +108,21 @@ if(decaf) builder.IsDecaf();
 var factory = serviceProvider.GetRequiredService<CoffeeFactory>();
 Coffee coffee = factory.CreateCoffee(coffeeChoice, builder);
 
-// 3. Print, Checkout, and Log - no manual 'new-ing' of dependencies!
+// 3. DYNAMICALLY DECORATE OUR COFFEE! (The Layer Cake)
+// We check our builder/inputs and wrap the coffee in decorators on the fly.
+if (milkType.Equals("Oat", StringComparison.OrdinalIgnoreCase))
+{
+    coffee = new OatMilkDecorator(coffee);
+    Console.WriteLine("[Decorator] Wrapping core coffee with Oat Milk layer.");
+}
+
+if (hasWhippedCream)
+{
+    coffee = new WhippedCreamDecorator(coffee);
+    Console.WriteLine("[Decorator] Wrapping coffee with Whipped Cream layer.");
+}
+
+// 4. Print, Checkout, and Log - using our decorated coffee object!
 var printer = serviceProvider.GetRequiredService<OrderPrinter>();
 printer.PrintOrder(coffee);
 
@@ -235,8 +249,7 @@ public abstract class Coffee
     public DateTime OrderedAt { get; }
     public decimal BasePrice { get; }
 
-    // [Builder smell] Constructor from Hell.
-    // One more boolean and this becomes less of an API and more of a personality test.
+    // Constructor A: Used by subclasses (Espresso, Latte, etc.)
     protected Coffee(CoffeeBuilder builder, DateTime orderedAt, decimal basePrice)
     {
         CustomerName = builder.CustomerName;
@@ -257,169 +270,126 @@ public abstract class Coffee
         BasePrice = basePrice;
     }
 
-    public decimal CalculateTotalPrice(LocalDatabaseSettings settings)
+    // Constructor B: Copy Constructor specifically for Decorators!
+    protected Coffee(Coffee other)
+    {
+        CustomerName = other.CustomerName;
+        Name = other.Name;
+        Size = other.Size;
+        MilkType = other.MilkType;
+        EspressoShots = other.EspressoShots;
+        SyrupType = other.SyrupType;
+        SyrupShots = other.SyrupShots;
+        HasWhippedCream = other.HasWhippedCream;
+        HasSprinkles = other.HasSprinkles;
+        IsIced = other.IsIced;
+        HasCaramelDrizzle = other.HasCaramelDrizzle;
+        ExtraHot = other.ExtraHot;
+        Decaf = other.Decaf;
+        LoyaltyLevel = other.LoyaltyLevel;
+        OrderedAt = other.OrderedAt;
+        BasePrice = other.BasePrice;
+    }
+
+
+    // 1. Core Price Calculation (Overridden by decorators)
+    public virtual decimal GetRawPrice()
     {
         decimal total = BasePrice;
 
-        // [Decorator smell] Every topping, modifier, and lifestyle choice lives here forever.
-        // This method started as "just add oat milk" and is now a pricing-themed escape room.
-        if (Size.Equals("Small", StringComparison.OrdinalIgnoreCase))
-        {
+        // 1. Size Pricing (Base class responsibility)
+        if(Size.Equals("Small", StringComparison.OrdinalIgnoreCase))
             total += 0.00m;
-        }
-        else if (Size.Equals("Medium", StringComparison.OrdinalIgnoreCase))
-        {
+        else if(Size.Equals("Medium", StringComparison.OrdinalIgnoreCase))
             total += 1.25m;
-        }
-        else if (Size.Equals("Large", StringComparison.OrdinalIgnoreCase))
-        {
+        else if(Size.Equals("Large", StringComparison.OrdinalIgnoreCase))
             total += 2.50m;
-        }
-        else if (Size.Equals("Ludicrous", StringComparison.OrdinalIgnoreCase))
-        {
+        else if(Size.Equals("Ludicrous", StringComparison.OrdinalIgnoreCase))
             total += 6.75m;
-
-            if (EspressoShots > 3)
-            {
-                total += 2.00m;
-            }
-            else
-            {
-                total += 1.00m;
-            }
-        }
         else
-        {
             total += 1.00m;
-        }
 
-        if (EspressoShots > 1)
+        // 2. Extra Shots (Base class responsibility)
+        if(EspressoShots > 1)
         {
             int extraShots = EspressoShots - 1;
-
-            if (Decaf)
-            {
-                total += extraShots * 1.10m;
-            }
-            else
-            {
-                if (extraShots >= 3)
-                {
-                    total += extraShots * 1.40m;
-                }
-                else
-                {
-                    total += extraShots * 1.25m;
-                }
-            }
+            total += Decaf ? (extraShots * 1.10m) : (extraShots >= 3 ? extraShots * 1.40m : extraShots * 1.25m);
         }
 
-        if (MilkType.Equals("Oat", StringComparison.OrdinalIgnoreCase))
-        {
-            total += 1.30m;
-
-            if (Size.Equals("Ludicrous", StringComparison.OrdinalIgnoreCase))
-            {
-                total += 0.80m;
-            }
-        }
-        else if (MilkType.Equals("Almond", StringComparison.OrdinalIgnoreCase))
-        {
+        // 3. Other Milks (But NOT Oat Milk, which is handled by the decorator!)
+        if(MilkType.Equals("Almond", StringComparison.OrdinalIgnoreCase))
             total += 1.10m;
-        }
-        else if (MilkType.Equals("Skim", StringComparison.OrdinalIgnoreCase))
-        {
+        else if(MilkType.Equals("Skim", StringComparison.OrdinalIgnoreCase))
             total += 0.40m;
-        }
-        else if (MilkType.Equals("None", StringComparison.OrdinalIgnoreCase))
-        {
+        else if(MilkType.Equals("None", StringComparison.OrdinalIgnoreCase))
             total -= 0.15m;
-        }
 
-        if (!SyrupType.Equals("None", StringComparison.OrdinalIgnoreCase) && SyrupShotsAreSuspiciouslyChargeable())
+        // 4. Syrups (Left in base class for demo simplicity)
+        if(!SyrupType.Equals("None", StringComparison.OrdinalIgnoreCase) && SyrupShots > 0)
         {
-            if (SyrupType.Equals("Pumpkin", StringComparison.OrdinalIgnoreCase))
+            if(SyrupType.Equals("Pumpkin", StringComparison.OrdinalIgnoreCase))
             {
                 total += SyrupShots * 0.95m;
-
-                if (DateTime.Now.Month is 9 or 10 or 11)
-                {
+                if(DateTime.Now.Month is 9 or 10 or 11)
                     total += 1.50m;
-                }
             }
-            else if (SyrupType.Equals("Caramel", StringComparison.OrdinalIgnoreCase))
-            {
+            else if(SyrupType.Equals("Caramel", StringComparison.OrdinalIgnoreCase))
                 total += SyrupShots * 0.75m;
-            }
             else
-            {
                 total += SyrupShots * 0.65m;
-            }
         }
 
-        if (HasWhippedCream)
+        // 5. Sprinkles (Only add if no Whipped Cream decorator is wrapping us, or keep it simple)
+        if(HasSprinkles && !HasWhippedCream) // Simple fallback for demo
         {
-            total += 0.90m;
-
-            if (HasSprinkles)
-            {
-                total += 0.55m;
-            }
-        }
-        else
-        {
-            if (HasSprinkles)
-            {
-                total += 0.75m;
-            }
+            total += 0.75m;
         }
 
-        if (IsIced)
+        // 6. Iced & Extra Hot (Base class responsibility)
+        if(IsIced)
         {
             total += 0.60m;
-
-            if (ExtraHot)
-            {
-                total += 3.00m; // Physically confusing surcharge.
-            }
+            if(ExtraHot)
+                total += 3.00m;
         }
-        else if (ExtraHot)
+        else if(ExtraHot)
         {
             total += 0.35m;
         }
 
-        if (HasCaramelDrizzle)
-        {
+        if(HasCaramelDrizzle)
             total += 0.85m;
-        }
-
-        if (Decaf)
-        {
+        if(Decaf)
             total += 0.50m;
-        }
 
+        return total;
+    }
+
+
+    // 2. Final Price Calculation (Not virtual! Applies tax and loyalty to the fully decorated raw price)
+    public decimal CalculateTotalPrice(LocalDatabaseSettings settings)
+    {
+        decimal total = GetRawPrice();
+
+        // Apply tax
         total += total * settings.BeanTaxMultiplier;
 
-        if (LoyaltyLevel.Equals("Silver", StringComparison.OrdinalIgnoreCase))
+        // Apply Loyalty
+        if(LoyaltyLevel.Equals("Silver", StringComparison.OrdinalIgnoreCase))
         {
             total *= 0.98m;
         }
-        else if (LoyaltyLevel.Equals("Gold", StringComparison.OrdinalIgnoreCase))
+        else if(LoyaltyLevel.Equals("Gold", StringComparison.OrdinalIgnoreCase))
         {
             total *= 0.95m;
         }
-        else if (LoyaltyLevel.Equals("Platinum", StringComparison.OrdinalIgnoreCase))
+        else if(LoyaltyLevel.Equals("Platinum", StringComparison.OrdinalIgnoreCase))
         {
             total *= 0.93m;
-            total += 4.99m; // Premium loyalty maintenance fee. Loyalty has shareholders.
+            total += 4.99m; // Loyalty premium maintenance fee
         }
 
         return Math.Round(total, 2);
-
-        bool SyrupShotsAreSuspiciouslyChargeable()
-        {
-            return SyrupShots > 0;
-        }
     }
 }
 
@@ -574,5 +544,40 @@ public class LegacyPaymentAdapter : IPaymentProcessor
         string result = _legacyMachine.ProcessTransactionInCents(cents, _settings.CurrencyCode);
 
         return result.StartsWith("APPROVED", StringComparison.OrdinalIgnoreCase);
+    }
+}
+
+// The Abstract base decorator leveraging our new Copy Constructor
+public abstract class CoffeeDecorator : Coffee
+{
+    protected readonly Coffee _decoratedCoffee;
+
+    protected CoffeeDecorator(Coffee decoratedCoffee) : base(decoratedCoffee)
+    {
+        _decoratedCoffee = decoratedCoffee;
+    }
+}
+
+// Concrete Decorator A: Oat Milk
+public class OatMilkDecorator : CoffeeDecorator
+{
+    public OatMilkDecorator(Coffee coffee) : base(coffee) { }
+
+    public override decimal GetRawPrice()
+    {
+        // Add $1.30 to whatever the underlying coffee costs
+        return _decoratedCoffee.GetRawPrice() + 1.30m;
+    }
+}
+
+// Concrete Decorator B: Whipped Cream
+public class WhippedCreamDecorator : CoffeeDecorator
+{
+    public WhippedCreamDecorator(Coffee coffee) : base(coffee) { }
+
+    public override decimal GetRawPrice()
+    {
+        // Add $0.90 to whatever the underlying coffee costs
+        return _decoratedCoffee.GetRawPrice() + 0.90m;
     }
 }
